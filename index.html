@@ -931,24 +931,105 @@ ${text}
 
             // 薬剤師のメッセージのみ抽出
             const pharmacistMessages = state.messages.filter(msg => msg.speaker === 'pharmacist');
+            // 患者のメッセージも抽出（SOAPに必要）
+            const patientMessages = state.messages.filter(msg => msg.speaker === 'patient');
 
             if (pharmacistMessages.length === 0) {
                 showNotification('⚠️ 薬剤師の説明がありません');
                 return;
             }
 
-            showNotification('📄 PDF生成中...');
+            showNotification('📄 処理中...');
 
             try {
+                // SOAP形式で別ウィンドウに出力
+                await generateSOAPRecord(state.messages);
+
+                // PDF生成
                 await generatePDF(pharmacistMessages);
-                showNotification('✅ PDFを出力しました');
+                showNotification('✅ SOAP記録とPDFを出力しました');
 
                 // チャットをクリア
                 clearChat();
             } catch (error) {
-                console.error('PDF生成エラー:', error);
-                showNotification('⚠️ PDF生成に失敗しました');
+                console.error('出力エラー:', error);
+                showNotification('⚠️ 出力に失敗しました');
             }
+        }
+
+        // SOAP形式の記録を生成して別ウィンドウで表示
+        async function generateSOAPRecord(allMessages) {
+            const targetLang = languageMap[state.targetLanguage];
+
+            // 会話内容をテキスト化
+            const conversationText = allMessages.map((msg, i) => {
+                const speaker = msg.speaker === 'pharmacist' ? '薬剤師' : '患者';
+                return speaker + ': ' + msg.original;
+            }).join('\n');
+
+            // AIでSOAP形式に整理
+            const soapPrompt = 'あなたは薬剤師の服薬指導記録をSOAP形式でまとめる専門家です。\n\n以下の薬剤師と患者の会話記録から、薬歴に記載するSOAP形式の記録を作成してください。\n\n【会話記録】\n' + conversationText + '\n\n【出力形式】必ず以下のJSON形式で出力してください：\n{\n  "S": "主観的情報（Subjective）：患者の訴え、症状、生活状況、服薬状況など患者から聞き取った内容",\n  "O": "客観的情報（Objective）：処方内容、検査値、バイタル、外見など客観的に確認できた情報",\n  "A": "評価（Assessment）：薬学的評価、問題点の分析、薬効評価、副作用チェック結果など",\n  "P": "計画（Plan）：指導内容、患者への説明事項、次回確認事項、フォローアップ計画など"\n}\n\n【注意点】\n- 会話で言及された内容のみを含める\n- 推測や追加情報は入れない\n- 簡潔かつ要点を押さえた記載にする\n- 各項目が空の場合は「特記事項なし」とする\n\nJSON形式のみ出力してください。';
+
+            let soapData;
+            try {
+                const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + state.apiKey, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: soapPrompt }] }],
+                        generationConfig: {
+                            temperature: 0.2,
+                            maxOutputTokens: 2048
+                        }
+                    })
+                });
+
+                if (!response.ok) throw new Error('API error');
+
+                const data = await response.json();
+                let resultText = data.candidates[0].content.parts[0].text.trim();
+
+                // JSON部分を抽出
+                const jsonMatch = resultText.match(/```json\s*([\s\S]*?)\s*```/) ||
+                    resultText.match(/```\s*([\s\S]*?)\s*```/) ||
+                    [null, resultText];
+                resultText = jsonMatch[1] || resultText;
+
+                soapData = JSON.parse(resultText);
+            } catch (error) {
+                console.error('SOAP生成エラー:', error);
+                soapData = {
+                    S: '（AI分析エラー）',
+                    O: '（AI分析エラー）',
+                    A: '（AI分析エラー）',
+                    P: '（AI分析エラー）'
+                };
+            }
+
+            // 別ウィンドウでSOAP記録を表示
+            const currentDateTime = new Date().toLocaleString('ja-JP');
+
+            // HTMLを構築
+            var htmlParts = [];
+            htmlParts.push('<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>服薬指導記録（SOAP形式）</title>');
+            htmlParts.push('<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:Hiragino Sans,Yu Gothic,Meiryo,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px}.container{max-width:800px;margin:0 auto;background:#fff;border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.2);overflow:hidden}.header{background:linear-gradient(135deg,#0054a6 0%,#003d7a 100%);color:#fff;padding:20px 30px;text-align:center}.header h1{font-size:24px;margin-bottom:5px}.header .datetime{font-size:14px;opacity:.9}.content{padding:30px}.soap-section{margin-bottom:20px;border-radius:12px;overflow:hidden;border:1px solid #e0e0e0}.soap-header{padding:12px 20px;font-weight:700;font-size:16px;display:flex;align-items:center;gap:10px}.soap-header.s{background:#e3f2fd;color:#1565c0}.soap-header.o{background:#e8f5e9;color:#2e7d32}.soap-header.a{background:#fff3e0;color:#ef6c00}.soap-header.p{background:#fce4ec;color:#c2185b}.soap-body{padding:15px 20px;background:#fafafa;font-size:14px;line-height:1.8;white-space:pre-wrap}.actions{padding:20px 30px;background:#f5f5f5;display:flex;gap:10px;justify-content:center}.btn{padding:12px 30px;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s}.btn-primary{background:linear-gradient(135deg,#0054a6 0%,#003d7a 100%);color:#fff}.btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 15px rgba(0,84,166,.4)}.btn-secondary{background:#fff;color:#333;border:1px solid #ddd}.btn-secondary:hover{background:#f0f0f0}.copy-success{position:fixed;top:20px;right:20px;background:#4caf50;color:#fff;padding:12px 24px;border-radius:8px;display:none}</style></head>');
+            htmlParts.push('<body><div class="container"><div class="header"><h1>📋 服薬指導記録（SOAP形式）</h1><div class="datetime">' + currentDateTime + '</div></div>');
+            htmlParts.push('<div class="content">');
+            htmlParts.push('<div class="soap-section"><div class="soap-header s">🗣️ S（Subjective：主観的情報）</div><div class="soap-body" id="soap-s">' + (soapData.S || '特記事項なし') + '</div></div>');
+            htmlParts.push('<div class="soap-section"><div class="soap-header o">📊 O（Objective：客観的情報）</div><div class="soap-body" id="soap-o">' + (soapData.O || '特記事項なし') + '</div></div>');
+            htmlParts.push('<div class="soap-section"><div class="soap-header a">💡 A（Assessment：評価）</div><div class="soap-body" id="soap-a">' + (soapData.A || '特記事項なし') + '</div></div>');
+            htmlParts.push('<div class="soap-section"><div class="soap-header p">📝 P（Plan：計画）</div><div class="soap-body" id="soap-p">' + (soapData.P || '特記事項なし') + '</div></div>');
+            htmlParts.push('</div>');
+            htmlParts.push('<div class="actions"><button class="btn btn-primary" onclick="copyAll()">📋 全てコピー</button><button class="btn btn-secondary" onclick="window.print()">🖨️ 印刷</button><button class="btn btn-secondary" onclick="window.close()">✕ 閉じる</button></div>');
+            htmlParts.push('</div><div class="copy-success" id="copySuccess">✓ クリップボードにコピーしました</div>');
+            htmlParts.push('<script>function copyAll(){var s=document.getElementById("soap-s").textContent;var o=document.getElementById("soap-o").textContent;var a=document.getElementById("soap-a").textContent;var p=document.getElementById("soap-p").textContent;var text="【服薬指導記録】' + currentDateTime + '\\n\\nS（主観的情報）\\n"+s+"\\n\\nO（客観的情報）\\n"+o+"\\n\\nA（評価）\\n"+a+"\\n\\nP（計画）\\n"+p;navigator.clipboard.writeText(text).then(function(){var el=document.getElementById("copySuccess");el.style.display="block";setTimeout(function(){el.style.display="none"},2000)})}<\/script>');
+            htmlParts.push('</body></html>');
+            const soapHtml = htmlParts.join('');
+
+            // 別ウィンドウで開く
+            const soapWindow = window.open('', '_blank', 'width=900,height=800');
+            soapWindow.document.write(soapHtml);
+            soapWindow.document.close();
         }
 
         // PDF生成（AI分析 + html2pdf）
@@ -996,7 +1077,7 @@ ${text}
         // AIで会話内容を分析
         async function analyzeWithAI(messages, targetLang) {
             const conversationText = messages.map((msg, i) =>
-                `${i + 1}. 日本語: ${msg.original}\n   翻訳(${targetLang.name}): ${msg.translated}`
+                `${i + 1}. 日本語: ${msg.original}\n 翻訳(${targetLang.name}): ${msg.translated}`
             ).join('\n\n');
 
             const prompt = `あなたは薬剤師の服薬指導内容を患者向けの「お薬の説明書」に整理する専門家です。
@@ -1008,18 +1089,18 @@ ${conversationText}
 
 【出力形式】必ず以下のJSON形式で出力してください：
 {
-  "sections": [
-    {
-      "title_ja": "セクションタイトル（日本語）",
-      "title_trans": "セクションタイトル（${targetLang.name}）",
-      "items": [
-        {
-          "ja": "説明内容（日本語）",
-          "trans": "説明内容（${targetLang.name}）"
-        }
-      ]
-    }
-  ]
+"sections": [
+{
+"title_ja": "セクションタイトル（日本語）",
+"title_trans": "セクションタイトル（${targetLang.name}）",
+"items": [
+{
+"ja": "説明内容（日本語）",
+"trans": "説明内容（${targetLang.name}）"
+}
+]
+}
+]
 }
 
 【整理のポイント】
@@ -1032,17 +1113,18 @@ ${conversationText}
 JSON形式のみ出力してください。`;
 
             try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${state.apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: {
-                            temperature: 0.3,
-                            maxOutputTokens: 4096
-                        }
-                    })
-                });
+                const response = await
+                    fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${state.apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }] }],
+                            generationConfig: {
+                                temperature: 0.3,
+                                maxOutputTokens: 4096
+                            }
+                        })
+                    });
 
                 if (!response.ok) {
                     throw new Error('API error: ' + response.status);
@@ -1082,59 +1164,62 @@ JSON形式のみ出力してください。`;
                 let itemsHtml = '';
                 for (const item of section.items) {
                     itemsHtml += `
-                        <div style="margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #0054a6;">
-                            <div style="font-size: 13px; color: #333; margin-bottom: 6px; line-height: 1.6;">
-                                ${item.ja}
-                            </div>
-                            <div style="font-size: 12px; color: #666; line-height: 1.5; padding-left: 10px; border-left: 2px solid #ddd;">
-                                → ${item.trans}
-                            </div>
-                        </div>
-                    `;
+<div
+    style="margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #0054a6;">
+    <div style="font-size: 13px; color: #333; margin-bottom: 6px; line-height: 1.6;">
+        ${item.ja}
+    </div>
+    <div style="font-size: 12px; color: #666; line-height: 1.5; padding-left: 10px; border-left: 2px solid #ddd;">
+        → ${item.trans}
+    </div>
+</div>
+`;
                 }
 
                 sectionsHtml += `
-                    <div style="margin-bottom: 20px;">
-                        <div style="background: linear-gradient(135deg, #0054a6 0%, #003d7a 100%); color: white; padding: 10px 15px; border-radius: 6px; margin-bottom: 12px;">
-                            <div style="font-size: 14px; font-weight: bold;">${section.title_ja}</div>
-                            <div style="font-size: 11px; opacity: 0.9;">${section.title_trans}</div>
-                        </div>
-                        ${itemsHtml}
-                    </div>
-                `;
+<div style="margin-bottom: 20px;">
+    <div
+        style="background: linear-gradient(135deg, #0054a6 0%, #003d7a 100%); color: white; padding: 10px 15px; border-radius: 6px; margin-bottom: 12px;">
+        <div style="font-size: 14px; font-weight: bold;">${section.title_ja}</div>
+        <div style="font-size: 11px; opacity: 0.9;">${section.title_trans}</div>
+    </div>
+    ${itemsHtml}
+</div>
+`;
             }
 
             return `
-                <div style="font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif; padding: 20px; max-width: 210mm; background: white;">
-                    <!-- ヘッダー -->
-                    <div style="text-align: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #0054a6;">
-                        <div style="font-size: 24px; font-weight: bold; color: #0054a6; margin-bottom: 5px;">
-                            💊 お薬の説明書
-                        </div>
-                        <div style="font-size: 12px; color: #666;">
-                            Medication Instructions / ${targetLang.nativeName}
-                        </div>
-                        <div style="font-size: 11px; color: #999; margin-top: 5px;">
-                            ${date}
-                        </div>
-                    </div>
+<div
+    style="font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif; padding: 20px; max-width: 210mm; background: white;">
+    <!-- ヘッダー -->
+    <div style="text-align: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #0054a6;">
+        <div style="font-size: 24px; font-weight: bold; color: #0054a6; margin-bottom: 5px;">
+            💊 お薬の説明書
+        </div>
+        <div style="font-size: 12px; color: #666;">
+            Medication Instructions / ${targetLang.nativeName}
+        </div>
+        <div style="font-size: 11px; color: #999; margin-top: 5px;">
+            ${date}
+        </div>
+    </div>
 
-                    <!-- 本文 -->
-                    ${sectionsHtml}
+    <!-- 本文 -->
+    ${sectionsHtml}
 
-                    <!-- フッター：注意事項 -->
-                    <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd;">
-                        <div style="font-size: 9px; color: #999; text-align: center; line-height: 1.6;">
-                            ※ この説明書の翻訳はAIによる自動翻訳です。翻訳の正確性は保証されません。<br>
-                            ご不明な点がございましたら、薬剤師にお尋ねください。<br>
-                            <span style="font-size: 8px;">
-                                * The translation in this document is AI-generated. Accuracy is not guaranteed.<br>
-                                Please consult your pharmacist if you have any questions.
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            `;
+    <!-- フッター：注意事項 -->
+    <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd;">
+        <div style="font-size: 9px; color: #999; text-align: center; line-height: 1.6;">
+            ※ この説明書の翻訳はAIによる自動翻訳です。翻訳の正確性は保証されません。<br>
+            ご不明な点がございましたら、薬剤師にお尋ねください。<br>
+            <span style="font-size: 8px;">
+                * The translation in this document is AI-generated. Accuracy is not guaranteed.<br>
+                Please consult your pharmacist if you have any questions.
+            </span>
+        </div>
+    </div>
+</div>
+`;
         }
 
         // モーダル外クリックで閉じる
