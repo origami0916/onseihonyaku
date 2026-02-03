@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リアルタイム翻訳 - 薬局通訳サポート</title>
+    <!-- html2pdf ライブラリ（日本語対応PDF生成） -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        :root {
+            --primary-blue: #0084ff;
+            --primary-green: #00c853;
+            --bg-dark: #1a1a2e;
+            --bg-card: #16213e;
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0a0;
+            --border-color: #2a2a4a;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+            background: linear-gradient(135deg, var(--bg-dark) 0%, #0f0f23 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ヘッダー */
+        header {
+            background: rgba(22, 33, 62, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            gap: 10px;
+        }
+
+        .header-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .language-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .language-selector select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        .language-selector select option {
+            background: var(--bg-card);
+        }
+
+        .lang-display {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* チャットエリア */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .message {
+            max-width: 85%;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.pharmacist {
+            align-self: flex-start;
+        }
+
+        .message.patient {
+            align-self: flex-end;
+        }
+
+        .message-bubble {
+            padding: 14px 18px;
+            border-radius: 18px;
+            position: relative;
+        }
+
+        .pharmacist .message-bubble {
+            background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%);
+            border-bottom-left-radius: 4px;
+        }
+
+        .patient .message-bubble {
+            background: linear-gradient(135deg, #00c853 0%, #009624 100%);
+            border-bottom-right-radius: 4px;
+        }
+
+        .message-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .original-text {
+            font-size: 16px;
+            line-height: 1.5;
+            margin-bottom: 8px;
+        }
+
+        .translated-text {
+            font-size: 14px;
+            line-height: 1.5;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            opacity: 0.9;
+        }
+
+        .interim-text {
+            opacity: 0.7;
+            font-style: italic;
+        }
+
+        .translating {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            opacity: 0.8;
+        }
+
+        .translating::after {
+            content: '';
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* フッター */
+        footer {
+            background: rgba(22, 33, 62, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 16px 20px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .mic-btn {
+            padding: 16px 32px;
+            border-radius: 50px;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+
+        .mic-btn.pharmacist-btn {
+            background: linear-gradient(135deg, #0084ff 0%, #0066cc 100%);
+            color: white;
+        }
+
+        .mic-btn.patient-btn {
+            background: linear-gradient(135deg, #00c853 0%, #009624 100%);
+            color: white;
+        }
+
+        .mic-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .mic-btn.recording {
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(255, 0, 0, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 0 15px rgba(255, 0, 0, 0);
+            }
+        }
+
+        .clear-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            padding: 16px 24px;
+            border-radius: 50px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s;
+        }
+
+        .clear-btn:hover {
+            background: rgba(255, 100, 100, 0.2);
+            border-color: #ff6b6b;
+        }
+
+        .end-session-btn {
+            background: linear-gradient(135deg, #e91e63 0%, #9c27b0 100%);
+            color: white;
+            padding: 16px 24px;
+            border-radius: 50px;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .end-session-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 20px rgba(233, 30, 99, 0.4);
+        }
+
+        .end-session-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* モーダル */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+        }
+
+        .modal h2 {
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--primary-blue);
+        }
+
+        .save-btn {
+            background: var(--primary-blue);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .save-btn:hover {
+            opacity: 0.9;
+        }
+
+        /* 辞書リスト */
+        .dictionary-list {
+            margin-top: 16px;
+        }
+
+        .dictionary-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
+
+        .dictionary-item-text {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex: 1;
+        }
+
+        .dictionary-item-text span {
+            color: var(--text-secondary);
+        }
+
+        .delete-btn {
+            background: none;
+            border: none;
+            color: #ff6b6b;
+            cursor: pointer;
+            padding: 4px 8px;
+            font-size: 18px;
+        }
+
+        .add-dictionary-form {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .add-dictionary-form input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .add-btn {
+            background: var(--primary-green);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        /* 空状態 */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 64px;
+            margin-bottom: 16px;
+        }
+
+        /* 通知 */
+        .notification {
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 1001;
+            display: none;
+        }
+
+        .notification.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateX(-50%) translateY(-20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="header-left">
+            <button class="header-btn" onclick="openSettings()">⚙️ 設定</button>
+            <button class="header-btn" onclick="openDictionary()">📖 辞書</button>
+        </div>
+        <div class="language-selector">
+            <span class="lang-display">日本語 ⇄</span>
+            <select id="targetLanguage" onchange="saveSettings()">
+                <option value="pt-BR">ポルトガル語</option>
+                <option value="zh-CN">中国語</option>
+                <option value="vi-VN">ベトナム語</option>
+                <option value="en-US">英語</option>
+            </select>
+        </div>
+    </header>
+
+    <div class="chat-container" id="chatContainer">
+        <div class="empty-state" id="emptyState">
+            <div class="empty-state-icon">💬</div>
+            <p>音声ボタンを押して会話を始めてください</p>
+        </div>
+    </div>
+
+    <footer>
+        <button class="mic-btn pharmacist-btn" id="pharmacistBtn" onclick="toggleRecording('pharmacist')">
+            🎤 薬剤師
+        </button>
+        <button class="mic-btn patient-btn" id="patientBtn" onclick="toggleRecording('patient')">
+            🎤 患者
+        </button>
+        <button class="clear-btn" onclick="clearChat()">🗑️ クリア</button>
+        <button class="end-session-btn" id="endSessionBtn" onclick="endSession()">📄 会話終了・PDF出力</button>
+    </footer>
+
+    <!-- 設定モーダル -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal">
+            <h2>
+                ⚙️ 設定
+                <button class="modal-close" onclick="closeSettings()">×</button>
+            </h2>
+            <div class="form-group">
+                <label>Gemini API キー</label>
+                <input type="password" id="apiKeyInput" placeholder="APIキーを入力してください">
+            </div>
+            <button class="save-btn" onclick="saveApiKey()">保存</button>
+        </div>
+    </div>
+
+    <!-- 辞書モーダル -->
+    <div class="modal-overlay" id="dictionaryModal">
+        <div class="modal">
+            <h2>
+                📖 辞書登録
+                <button class="modal-close" onclick="closeDictionary()">×</button>
+            </h2>
+            <div class="add-dictionary-form">
+                <input type="text" id="dictJapanese" placeholder="日本語">
+                <input type="text" id="dictTranslation" placeholder="訳語">
+                <button class="add-btn" onclick="addDictionaryEntry()">追加</button>
+            </div>
+            <div class="dictionary-list" id="dictionaryList"></div>
+        </div>
+    </div>
+
+    <!-- 通知 -->
+    <div class="notification" id="notification"></div>
+
+    <script>
+        // 状態管理
+        let state = {
+            apiKey: localStorage.getItem('gemini_api_key') || '',
+            targetLanguage: localStorage.getItem('target_language') || 'pt-BR',
+            dictionary: JSON.parse(localStorage.getItem('dictionary') || '[]'),
+            isRecording: false,
+            currentSpeaker: null,
+            recognition: null,
+            messages: []
+        };
+
+        // 言語コードマッピング
+        const languageMap = {
+            'pt-BR': { code: 'pt-BR', name: 'ポルトガル語', nativeName: 'Português' },
+            'zh-CN': { code: 'zh-CN', name: '中国語', nativeName: '中文' },
+            'vi-VN': { code: 'vi-VN', name: 'ベトナム語', nativeName: 'Tiếng Việt' },
+            'en-US': { code: 'en-US', name: '英語', nativeName: 'English' }
+        };
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async () => {
+            document.getElementById('targetLanguage').value = state.targetLanguage;
+            document.getElementById('apiKeyInput').value = state.apiKey;
+            initSpeechRecognition();
+            renderDictionaryList();
+
+            // マイクアクセス許可を事前に取得（一度だけ許可すれば以降は聞かれない）
+            await requestMicrophonePermission();
+        });
+
+        // マイク許可の事前取得
+        async function requestMicrophonePermission() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // 許可を取得したらストリームを停止（使用するまで解放）
+                stream.getTracks().forEach(track => track.stop());
+                console.log('マイクアクセス許可を取得しました');
+            } catch (error) {
+                console.log('マイクアクセス許可がありません:', error);
+                // 許可がなくても続行（ユーザーが手動で許可する可能性がある）
+            }
+        }
+
+        // 音声認識初期化
+        function initSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                showNotification('⚠️ このブラウザは音声認識に対応していません。Chrome/Edgeをお使いください。');
+                return;
+            }
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            state.recognition = new SpeechRecognition();
+            state.recognition.continuous = true;
+            state.recognition.interimResults = true;
+
+            state.recognition.onresult = handleRecognitionResult;
+            state.recognition.onerror = handleRecognitionError;
+            state.recognition.onend = handleRecognitionEnd;
+        }
+
+        // 録音開始/停止
+        function toggleRecording(speaker) {
+            if (state.isRecording) {
+                stopRecording();
+            } else {
+                startRecording(speaker);
+            }
+        }
+
+        function startRecording(speaker) {
+            if (!state.apiKey) {
+                showNotification('⚠️ 設定からAPIキーを入力してください');
+                openSettings();
+                return;
+            }
+
+            state.currentSpeaker = speaker;
+            state.isRecording = true;
+
+            // 言語設定
+            const lang = speaker === 'pharmacist' ? 'ja-JP' : state.targetLanguage;
+            state.recognition.lang = lang;
+
+            // UI更新
+            const btnId = speaker === 'pharmacist' ? 'pharmacistBtn' : 'patientBtn';
+            document.getElementById(btnId).classList.add('recording');
+            document.getElementById(btnId).innerHTML = '⏹️ 停止';
+
+            // 認識開始
+            state.recognition.start();
+
+            // 一時メッセージ作成
+            hideEmptyState();
+            addInterimMessage(speaker, '');
+        }
+
+        function stopRecording() {
+            state.isRecording = false;
+            state.recognition.stop();
+
+            // UI更新
+            document.getElementById('pharmacistBtn').classList.remove('recording');
+            document.getElementById('pharmacistBtn').innerHTML = '🎤 薬剤師';
+            document.getElementById('patientBtn').classList.remove('recording');
+            document.getElementById('patientBtn').innerHTML = '🎤 患者';
+        }
+
+        // 認識結果処理
+        let currentInterimMessageId = null;
+
+        function handleRecognitionResult(event) {
+            let interimTranscript = '';
+            let finalTranscript = '';
+
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript;
+                } else {
+                    interimTranscript += transcript;
+                }
+            }
+
+            // 一時メッセージ更新
+            if (interimTranscript) {
+                updateInterimMessage(interimTranscript);
+            }
+
+            // 確定テキストがあれば翻訳
+            if (finalTranscript) {
+                finalizeMessage(finalTranscript);
+            }
+        }
+
+        function handleRecognitionError(event) {
+            console.error('Recognition error:', event.error);
+            if (event.error !== 'no-speech') {
+                showNotification('⚠️ 音声認識エラー: ' + event.error);
+            }
+            stopRecording();
+        }
+
+        function handleRecognitionEnd() {
+            if (state.isRecording) {
+                // 継続録音の場合は再開
+                state.recognition.start();
+            }
+        }
+
+        // メッセージ管理
+        function hideEmptyState() {
+            document.getElementById('emptyState').style.display = 'none';
+        }
+
+        function addInterimMessage(speaker, text) {
+            const container = document.getElementById('chatContainer');
+            const msgId = 'msg-' + Date.now();
+            currentInterimMessageId = msgId;
+
+            const msgHtml = `
+                <div class="message ${speaker}" id="${msgId}">
+                    <div class="message-label">
+                        ${speaker === 'pharmacist' ? '👨‍⚕️ 薬剤師' : '👤 患者'}
+                    </div>
+                    <div class="message-bubble">
+                        <div class="original-text interim-text">${text || '音声を認識中...'}</div>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', msgHtml);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateInterimMessage(text) {
+            if (!currentInterimMessageId) return;
+            const msgEl = document.getElementById(currentInterimMessageId);
+            if (msgEl) {
+                const textEl = msgEl.querySelector('.original-text');
+                textEl.textContent = text;
+                textEl.classList.add('interim-text');
+            }
+        }
+
+        async function finalizeMessage(text) {
+            if (!currentInterimMessageId) return;
+            const msgEl = document.getElementById(currentInterimMessageId);
+            if (!msgEl) return;
+
+            const speaker = state.currentSpeaker;
+            const textEl = msgEl.querySelector('.original-text');
+            textEl.textContent = text;
+            textEl.classList.remove('interim-text');
+
+            // 翻訳中表示
+            const bubble = msgEl.querySelector('.message-bubble');
+            bubble.insertAdjacentHTML('beforeend', '<div class="translated-text translating">翻訳中</div>');
+
+            // 翻訳実行
+            const translated = await translateText(text, speaker);
+
+            // 翻訳結果表示
+            const translatedEl = bubble.querySelector('.translated-text');
+            translatedEl.classList.remove('translating');
+            translatedEl.textContent = translated;
+
+            // メッセージ保存
+            state.messages.push({
+                speaker,
+                original: text,
+                translated,
+                timestamp: new Date().toISOString()
+            });
+
+            // 新しい一時メッセージ用意
+            currentInterimMessageId = null;
+            if (state.isRecording) {
+                addInterimMessage(speaker, '');
+            }
+
+            // スクロール
+            document.getElementById('chatContainer').scrollTop = document.getElementById('chatContainer').scrollHeight;
+        }
+
+        // 翻訳処理
+        async function translateText(text, speaker) {
+            const targetLang = languageMap[state.targetLanguage];
+            const fromLang = speaker === 'pharmacist' ? '日本語' : targetLang.name;
+            const toLang = speaker === 'pharmacist' ? targetLang.name : '日本語';
+
+            // 辞書情報
+            let dictPrompt = '';
+            if (state.dictionary.length > 0) {
+                dictPrompt = '\n\n【辞書用語】以下の用語は指定された訳語を必ず使用してください：\n';
+                state.dictionary.forEach(entry => {
+                    dictPrompt += `- ${entry.ja} → ${entry.translation}\n`;
+                });
+            }
+
+            const prompt = `あなたは医療通訳の専門家です。薬剤師と患者の会話を正確かつ自然に翻訳してください。${dictPrompt}
+
+【翻訳対象】${fromLang}から${toLang}へ翻訳：
+${text}
+
+【指示】
+- 自然で分かりやすい表現にする
+- 医療用語は正確に訳す
+- 翻訳結果のみを出力（説明不要）`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${state.apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            temperature: 0.3,
+                            maxOutputTokens: 1024
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('API error: ' + response.status);
+                }
+
+                const data = await response.json();
+                return data.candidates[0].content.parts[0].text.trim();
+            } catch (error) {
+                console.error('Translation error:', error);
+                return '⚠️ 翻訳エラー';
+            }
+        }
+
+        // チャットクリア
+        function clearChat() {
+            if (state.isRecording) {
+                stopRecording();
+            }
+            state.messages = [];
+            currentInterimMessageId = null;
+            document.getElementById('chatContainer').innerHTML = `
+                <div class="empty-state" id="emptyState">
+                    <div class="empty-state-icon">💬</div>
+                    <p>音声ボタンを押して会話を始めてください</p>
+                </div>
+            `;
+        }
+
+        // 設定モーダル
+        function openSettings() {
+            document.getElementById('settingsModal').classList.add('active');
+            document.getElementById('apiKeyInput').value = state.apiKey;
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsModal').classList.remove('active');
+        }
+
+        function saveApiKey() {
+            state.apiKey = document.getElementById('apiKeyInput').value;
+            localStorage.setItem('gemini_api_key', state.apiKey);
+            closeSettings();
+            showNotification('✅ APIキーを保存しました');
+        }
+
+        function saveSettings() {
+            state.targetLanguage = document.getElementById('targetLanguage').value;
+            localStorage.setItem('target_language', state.targetLanguage);
+        }
+
+        // 辞書モーダル
+        function openDictionary() {
+            document.getElementById('dictionaryModal').classList.add('active');
+            renderDictionaryList();
+        }
+
+        function closeDictionary() {
+            document.getElementById('dictionaryModal').classList.remove('active');
+        }
+
+        function addDictionaryEntry() {
+            const ja = document.getElementById('dictJapanese').value.trim();
+            const translation = document.getElementById('dictTranslation').value.trim();
+
+            if (!ja || !translation) {
+                showNotification('⚠️ 日本語と訳語を入力してください');
+                return;
+            }
+
+            state.dictionary.push({ ja, translation });
+            localStorage.setItem('dictionary', JSON.stringify(state.dictionary));
+
+            document.getElementById('dictJapanese').value = '';
+            document.getElementById('dictTranslation').value = '';
+
+            renderDictionaryList();
+            showNotification('✅ 辞書に追加しました');
+        }
+
+        function deleteDictionaryEntry(index) {
+            state.dictionary.splice(index, 1);
+            localStorage.setItem('dictionary', JSON.stringify(state.dictionary));
+            renderDictionaryList();
+        }
+
+        function renderDictionaryList() {
+            const list = document.getElementById('dictionaryList');
+            if (state.dictionary.length === 0) {
+                list.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:20px;">辞書が空です</p>';
+                return;
+            }
+
+            list.innerHTML = state.dictionary.map((entry, i) => `
+                <div class="dictionary-item">
+                    <div class="dictionary-item-text">
+                        <strong>${entry.ja}</strong>
+                        <span>→</span>
+                        <span>${entry.translation}</span>
+                    </div>
+                    <button class="delete-btn" onclick="deleteDictionaryEntry(${i})">🗑️</button>
+                </div>
+            `).join('');
+        }
+
+        // 通知
+        function showNotification(message) {
+            const notif = document.getElementById('notification');
+            notif.textContent = message;
+            notif.classList.add('show');
+            setTimeout(() => notif.classList.remove('show'), 3000);
+        }
+
+        // 会話終了・PDF出力
+        async function endSession() {
+            if (state.isRecording) {
+                stopRecording();
+            }
+
+            // 薬剤師のメッセージのみ抽出
+            const pharmacistMessages = state.messages.filter(msg => msg.speaker === 'pharmacist');
+
+            if (pharmacistMessages.length === 0) {
+                showNotification('⚠️ 薬剤師の説明がありません');
+                return;
+            }
+
+            showNotification('📄 PDF生成中...');
+
+            try {
+                await generatePDF(pharmacistMessages);
+                showNotification('✅ PDFを出力しました');
+
+                // チャットをクリア
+                clearChat();
+            } catch (error) {
+                console.error('PDF生成エラー:', error);
+                showNotification('⚠️ PDF生成に失敗しました');
+            }
+        }
+
+        // PDF生成（AI分析 + html2pdf）
+        async function generatePDF(messages) {
+            const targetLang = languageMap[state.targetLanguage];
+            const currentDate = new Date().toLocaleDateString('ja-JP', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+
+            // 会話内容をAIで分析して説明書形式に整理
+            showNotification('🤖 AIが説明書を作成中...');
+            const analyzedContent = await analyzeWithAI(messages, targetLang);
+
+            // HTML生成
+            const pdfHtml = generatePDFHtml(analyzedContent, targetLang, currentDate);
+
+            // 一時的なコンテナを作成
+            const container = document.createElement('div');
+            container.innerHTML = pdfHtml;
+            container.style.position = 'absolute';
+            container.style.left = '-9999px';
+            container.style.top = '0';
+            document.body.appendChild(container);
+
+            // html2pdfでPDF生成
+            const filename = 'medication_instructions_' + new Date().toISOString().slice(0, 10) + '.pdf';
+
+            const opt = {
+                margin: [15, 15, 25, 15],
+                filename: filename,
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2, useCORS: true },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+
+            await html2pdf().set(opt).from(container).save();
+
+            // 一時コンテナを削除
+            document.body.removeChild(container);
+        }
+
+        // AIで会話内容を分析
+        async function analyzeWithAI(messages, targetLang) {
+            const conversationText = messages.map((msg, i) =>
+                `${i + 1}. 日本語: ${msg.original}\n   翻訳(${targetLang.name}): ${msg.translated}`
+            ).join('\n\n');
+
+            const prompt = `あなたは薬剤師の服薬指導内容を患者向けの「お薬の説明書」に整理する専門家です。
+
+以下の薬剤師と患者の会話記録を分析し、患者が持ち帰って読み返せる分かりやすい説明書形式に整理してください。
+
+【会話記録】
+${conversationText}
+
+【出力形式】必ず以下のJSON形式で出力してください：
+{
+  "sections": [
+    {
+      "title_ja": "セクションタイトル（日本語）",
+      "title_trans": "セクションタイトル（${targetLang.name}）",
+      "items": [
+        {
+          "ja": "説明内容（日本語）",
+          "trans": "説明内容（${targetLang.name}）"
+        }
+      ]
+    }
+  ]
+}
+
+【整理のポイント】
+- 「お薬の名前と効果」「服用方法」「注意事項」「副作用について」などのカテゴリに分類
+- 患者が理解しやすい平易な表現に整理
+- 重要な情報（飲み方、回数、タイミング等）は明確に
+- 会話で言及された内容のみ含める（勝手に追加しない）
+- 翻訳は元の会話の翻訳を活用し、一貫性を保つ
+
+JSON形式のみ出力してください。`;
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${state.apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: {
+                            temperature: 0.3,
+                            maxOutputTokens: 4096
+                        }
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('API error: ' + response.status);
+                }
+
+                const data = await response.json();
+                let resultText = data.candidates[0].content.parts[0].text.trim();
+
+                // JSON部分を抽出（コードブロックで囲まれている場合に対応）
+                const jsonMatch = resultText.match(/```json\s*([\s\S]*?)\s*```/) ||
+                    resultText.match(/```\s*([\s\S]*?)\s*```/) ||
+                    [null, resultText];
+                resultText = jsonMatch[1] || resultText;
+
+                return JSON.parse(resultText);
+            } catch (error) {
+                console.error('AI分析エラー:', error);
+                // フォールバック：元のメッセージをそのまま使用
+                return {
+                    sections: [{
+                        title_ja: 'お薬の説明',
+                        title_trans: 'Medication Instructions',
+                        items: messages.map(msg => ({
+                            ja: msg.original,
+                            trans: msg.translated
+                        }))
+                    }]
+                };
+            }
+        }
+
+        // PDF用HTML生成
+        function generatePDFHtml(content, targetLang, date) {
+            let sectionsHtml = '';
+
+            for (const section of content.sections) {
+                let itemsHtml = '';
+                for (const item of section.items) {
+                    itemsHtml += `
+                        <div style="margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #0054a6;">
+                            <div style="font-size: 13px; color: #333; margin-bottom: 6px; line-height: 1.6;">
+                                ${item.ja}
+                            </div>
+                            <div style="font-size: 12px; color: #666; line-height: 1.5; padding-left: 10px; border-left: 2px solid #ddd;">
+                                → ${item.trans}
+                            </div>
+                        </div>
+                    `;
+                }
+
+                sectionsHtml += `
+                    <div style="margin-bottom: 20px;">
+                        <div style="background: linear-gradient(135deg, #0054a6 0%, #003d7a 100%); color: white; padding: 10px 15px; border-radius: 6px; margin-bottom: 12px;">
+                            <div style="font-size: 14px; font-weight: bold;">${section.title_ja}</div>
+                            <div style="font-size: 11px; opacity: 0.9;">${section.title_trans}</div>
+                        </div>
+                        ${itemsHtml}
+                    </div>
+                `;
+            }
+
+            return `
+                <div style="font-family: 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif; padding: 20px; max-width: 210mm; background: white;">
+                    <!-- ヘッダー -->
+                    <div style="text-align: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #0054a6;">
+                        <div style="font-size: 24px; font-weight: bold; color: #0054a6; margin-bottom: 5px;">
+                            💊 お薬の説明書
+                        </div>
+                        <div style="font-size: 12px; color: #666;">
+                            Medication Instructions / ${targetLang.nativeName}
+                        </div>
+                        <div style="font-size: 11px; color: #999; margin-top: 5px;">
+                            ${date}
+                        </div>
+                    </div>
+
+                    <!-- 本文 -->
+                    ${sectionsHtml}
+
+                    <!-- フッター：注意事項 -->
+                    <div style="margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd;">
+                        <div style="font-size: 9px; color: #999; text-align: center; line-height: 1.6;">
+                            ※ この説明書の翻訳はAIによる自動翻訳です。翻訳の正確性は保証されません。<br>
+                            ご不明な点がございましたら、薬剤師にお尋ねください。<br>
+                            <span style="font-size: 8px;">
+                                * The translation in this document is AI-generated. Accuracy is not guaranteed.<br>
+                                Please consult your pharmacist if you have any questions.
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // モーダル外クリックで閉じる
+        document.querySelectorAll('.modal-overlay').forEach(overlay => {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    overlay.classList.remove('active');
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
